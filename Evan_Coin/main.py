@@ -13,15 +13,14 @@ if __name__ == "__main__":
     # Create the blockchain and mine block
     blockchain = Blockchain()
 
-    # Mine block and make sure it is right
+    # Mine block, add transactions, and make sure it is right
     blockchain.mine_block(evan_wallet)
-    blockchain.verify_protocol()
     evan_wallet_balance = Wallet.get_balance(blockchain, evan_wallet.public_address)
-
 
     blockchain.add_transaction(Transaction(sender_public_address=evan_wallet.public_address, receiver_public_address=evan2_wallet.public_address, amount=5), sender_private_key=evan_wallet.private_key)
     blockchain.mine_block(evan_wallet)
 
+    blockchain.add_transaction(Transaction(sender_public_address=evan_wallet.public_address, receiver_public_address=evan2_wallet.public_address, amount=5), sender_private_key=evan_wallet.private_key)
     blockchain.add_transaction(Transaction(sender_public_address=evan_wallet.public_address, receiver_public_address=evan2_wallet.public_address, amount=5), sender_private_key=evan_wallet.private_key)
     blockchain.mine_block(evan2_wallet)
 

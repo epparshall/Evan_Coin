@@ -85,6 +85,9 @@ class Blockchain:
             assert len(signatures) == len(transactions), "Must have equal number of signatures as transactions"
             for sig_idx in range(len(signatures)):
                 assert Transaction.verify_signature(transactions[sig_idx], signatures[sig_idx]), "Transaction has incorrect digital signature not authenticated"
-
+                if sig_idx != 0:
+                    assert transactions[sig_idx].sender != self.mine_reward_wallet.public_address
+            # Verify that the first transaction comes from the mining reward wallet
+            assert transactions[0].sender == self.mine_reward_wallet.public_address
         # If all is good and no errors
         return True
