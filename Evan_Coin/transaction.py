@@ -36,10 +36,10 @@ class Transaction:
         return signature
 
     @staticmethod
-    def verify_signature(transaction, sender_public_address, signature):
+    def verify_signature(transaction, signature):
         transaction_str = json.dumps(transaction.to_dict(), sort_keys=True)
         try:
-            ecdsa.VerifyingKey.from_string(binascii.unhexlify(sender_public_address), curve=ecdsa.SECP256k1).verify(base64.b64decode(signature), transaction_str.encode())
+            ecdsa.VerifyingKey.from_string(binascii.unhexlify(transaction.sender), curve=ecdsa.SECP256k1).verify(base64.b64decode(signature), transaction_str.encode())
             return True
         except ecdsa.BadSignatureError:
             return False

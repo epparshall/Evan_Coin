@@ -5,11 +5,12 @@ import hashlib
 from Evan_Coin.transaction import Transaction
 
 class Block:
-    def __init__(self, index, previous_hash, transactions):
+    def __init__(self, index, previous_hash, transactions, signatures):
         self.index = index
         self.previous_hash = previous_hash
         self.timestamp = time.time()
         self.transactions = transactions
+        self.signatures = signatures
         self.hash = self.calculate_hash()
 
     def calculate_hash(self):
@@ -22,10 +23,11 @@ class Block:
             "previous_hash": self.previous_hash,
             "timestamp": self.timestamp,
             "transactions": [tx.to_dict() for tx in self.transactions],
+            "signatures": self.signatures,
         }
 
     @staticmethod
     def from_dict(block_dict):
         transactions = [Transaction.from_dict(tx) for tx in block_dict['transactions']]
-        block = Block(block_dict['index'], block_dict['previous_hash'], transactions)
+        block = Block(block_dict['index'], block_dict['previous_hash'], transactions, block_dict['signatures'])
         return block
