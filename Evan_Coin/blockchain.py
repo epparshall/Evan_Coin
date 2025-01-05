@@ -66,9 +66,9 @@ class Blockchain:
             json.dump(new_block.to_dict(), file)
             file.write("\n")
 
-    def verify_protocol(self):
-        with open("./Blockchain.txt", 'r') as file:
-            content = file.read()
+    def verify_protocol(self, content):
+        # with open("./Blockchain.txt", 'r') as file:
+        #     content = file.read()
 
         split_content = content.splitlines()
         for line_idx in range(len(split_content) - 1):
@@ -91,3 +91,8 @@ class Blockchain:
             assert transactions[0].sender == self.mine_reward_wallet.public_address
         # If all is good and no errors
         return True
+
+
+    # ISSUES
+        # Mine reward wallet is giving problems when multiple instances of blockchain on separate computers
+        # If a new block is mined, I need to be able to update the blockchain based on the txt file that is received
