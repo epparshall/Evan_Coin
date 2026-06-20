@@ -50,15 +50,33 @@ class Blockchain:
             print("Coinbase transactions cannot be added manually")
             return
 
-        signature = Transaction.sign_transaction(transaction, sender_private_key)
-        self.signatures.append(signature)
-        is_valid = Transaction.verify_signature(transaction, signature)
-        sender_balance = Wallet.get_balance(self, transaction.sender)
+        if transaction.amount <= 0:
+            print("Transaction amount must be greater than 0")
+            return
 
-        if is_valid and (sender_balance >= transaction.amount):
-            self.pending_transactions.append(transaction)
-        else:
-            print("Failed to add Transaction")
+        try:
+            signature = Transaction.sign_transaction(transaction, sender_private_key)
+        except ValueError as e:
+            print(f"Failed to sign transaction: {e}")
+            return
+
+        try:
+            is_valid = Transaction.verify_signature(transaction, signature)
+        except ValueError as e:
+            print(f"Failed to verify transaction signature: {e}")
+            return
+
+        if not is_valid:
+            print("Invalid transaction signature")
+            return
+
+        sender_balance = Wallet.get_balance(self, transaction.sender)
+        if sender_balance < transaction.amount:
+            print(f"Insufficient balance: sender has {sender_balance}, tried to send {transaction.amount}")
+            return
+
+        self.signatures.append(signature)
+        self.pending_transactions.append(transaction)
 
     def mine_block(self, miner: Wallet):
         """Mine a new block with a coinbase reward transaction."""

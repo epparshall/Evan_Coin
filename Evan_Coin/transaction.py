@@ -37,14 +37,18 @@ class Transaction:
     def sign_transaction(transaction, sender_private_key):
         if transaction.is_coinbase:
             return None  # Coinbase transactions don't need signatures
-        transaction_str = json.dumps(transaction.to_dict(), sort_keys=True)
-        signature = base64.b64encode(
-            ecdsa.SigningKey.from_string(
-                binascii.unhexlify(sender_private_key), 
+        try:
+            transaction_str = json.dumps(transaction.to_dict(), sort_keys=True)
+            signing_key = ecdsa.SigningKey.from_string(
+                binascii.unhexlify(sender_private_key),
                 curve=ecdsa.SECP256k1
-            ).sign(transaction_str.encode())
-        ).decode()
-        return signature
+            )
+            signature = base64.b64encode(
+                signing_key.sign(transaction_str.encode())
+            ).decode()
+            return signature
+        except binascii.Error as e:
+            raise ValueError("Invalid private key: must be a valid hex-encoded key") from e
 
     @staticmethod
     def verify_signature(transaction, signature):
@@ -52,12 +56,18 @@ class Transaction:
             return True  # Coinbase transactions are always valid
         if not signature:
             return False
-        transaction_str = json.dumps(transaction.to_dict(), sort_keys=True)
         try:
-            ecdsa.VerifyingKey.from_string(
-                binascii.unhexlify(transaction.sender), 
+            transaction_str = json.dumps(transaction.to_dict(), sort_keys=True)
+            verifying_key = ecdsa.VerifyingKey.from_string(
+                binascii.unhexlify(transaction.sender),
                 curve=ecdsa.SECP256k1
-            ).verify(base64.b64decode(signature), transaction_str.encode())
+            )
+            verifying_key.verify(
+                base64.b64decode(signature),
+                transaction_str.encode()
+            )
             return True
         except ecdsa.BadSignatureError:
             return False
+        except binascii.Error as e:
+            raise ValueError("Invalid sender public key or signature format") from e
