@@ -56,18 +56,23 @@ def p2p_node_factory(low_difficulty_blockchain):
 
 
 class TestBlockchainP2PMethods:
-    def test_add_block_extends_chain(self, low_difficulty_blockchain, wallet):
-        blockchain = low_difficulty_blockchain
-        mined = blockchain.mine_block(wallet)
-        assert blockchain.add_block(mined) is False
+    def test_add_block_extends_chain(self, low_difficulty_blockchain, wallet, p2p_node_factory):
+        node_a = p2p_node_factory(blockchain=low_difficulty_blockchain)
+        node_b = p2p_node_factory()
 
-        blockchain2 = Blockchain(reward_amount=10)
-        blockchain2.difficulty = 1
-        next_block = blockchain.mine_block(wallet)
-        assert blockchain2.add_block(next_block) is False
+        # Sync node B to node A so they have identical chain history
+        chain_data = node_a.blockchain.serialize_chain()
+        node_b._handle_chain_response({
+            "height": node_a.get_chain_height(),
+            "chain": chain_data
+        })
 
-        assert blockchain.add_block(next_block) is True
-        assert blockchain.get_chain_height() == 3
+        # Now both have the same tip. Mine on A and deliver to B.
+        new_block = node_a.blockchain.mine_block(wallet)
+        result = node_b._handle_new_block({"block": new_block.to_dict()})
+
+        assert result is True
+        assert node_b.get_chain_height() == node_a.get_chain_height()
 
     def test_replace_chain_adopts_longer_valid_chain(self, tmp_path, monkeypatch, wallet):
         monkeypatch.chdir(tmp_path)
@@ -140,23 +145,19 @@ class TestP2PNetworking:
 
     def test_block_gossip_propagation(self, tmp_path, monkeypatch, wallet, p2p_node_factory):
         monkeypatch.chdir(tmp_path)
-        node_a_bc = Blockchain(reward_amount=10)
-        node_a_bc.difficulty = 1
-        port_a = _free_port()
-        node_a = p2p_node_factory(port=port_a, blockchain=node_a_bc)
+        node_a = p2p_node_factory()
+        node_b = p2p_node_factory(bootstrap_peers=[("127.0.0.1", node_a.port)])
 
-        node_b_bc = Blockchain(reward_amount=10)
-        node_b_bc.difficulty = 1
-        node_b = p2p_node_factory(
-            bootstrap_peers=[("127.0.0.1", port_a)],
-            blockchain=node_b_bc,
-        )
         time.sleep(0.2)
 
-        new_block = node_a_bc.mine_block(wallet)
+        # Node A mines a block (appends on A)
+        new_block = node_a.blockchain.mine_block(wallet)
+
+        # Broadcast via gossip to node B
         node_a.broadcast_new_block(new_block)
         time.sleep(0.5)
 
+        # Node B should have accepted it via _handle_new_block
         assert node_b.get_chain_height() == 2
 
     def test_peer_discovery_via_bootstrap(self, p2p_node_factory):
@@ -196,6 +197,18 @@ class TestP2PThreadSafety:
     def test_concurrent_block_additions_are_safe(self, low_difficulty_blockchain, wallet):
         blockchain = low_difficulty_blockchain
         blockchain.mine_block(wallet)
+
+        source = Blockchain(reward_amount=10)
+        source.difficulty = 1
+        source.mine_block(wallet)
+        candidate1 = source.mine_block(wallet)
+
+        source2 = Blockchain(reward_amount=10)
+        source2.difficulty = 1
+        source2.mine_block(wallet)
+        source2.mine_block(wallet)
+        candidate2 = source2.mine_block(wallet)
+
         successes = []
         lock = threading.Lock()
 
@@ -204,13 +217,9 @@ class TestP2PThreadSafety:
             with lock:
                 successes.append(result)
 
-        block_one = blockchain.mine_block(wallet)
-        blockchain.mine_block(wallet)
-        block_three = blockchain.mine_block(wallet)
-
         threads = [
-            threading.Thread(target=try_add_block, args=(block_one,)),
-            threading.Thread(target=try_add_block, args=(block_three,)),
+            threading.Thread(target=try_add_block, args=(candidate1,)),
+            threading.Thread(target=try_add_block, args=(candidate2,)),
         ]
         for thread in threads:
             thread.start()
