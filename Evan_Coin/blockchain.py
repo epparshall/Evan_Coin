@@ -9,20 +9,33 @@ from Evan_Coin import Wallet
 
 
 class Blockchain:
-    def __init__(self, reward_amount=10):
+    def __init__(self, reward_amount=10, genesis_reward_address=None):
         self.chain = []
         self.pending_transactions = []
         self.signatures = []
         self.balances = {}
+        self.genesis_reward_address = genesis_reward_address
         self.create_genesis_block()
         self.difficulty = 4
         self.reward_amount = reward_amount  # Configurable block reward
 
     def create_genesis_block(self):
-        genesis_block = Block(0, "0", [], [])
+        if self.genesis_reward_address:
+            # Include coinbase reward in genesis block (as requested in #9)
+            genesis_coinbase = Transaction(
+                sender_public_address=None,
+                receiver_public_address=self.genesis_reward_address,
+                amount=self.reward_amount,
+                is_coinbase=True
+            )
+            genesis_block = Block(0, "0", [genesis_coinbase], [None])
+        else:
+            genesis_block = Block(0, "0", [], [])
         self.save_to_txt(genesis_block, rwa='w')
         self.chain.append(genesis_block)
         self.balances = {}  # reset on genesis
+        if self.genesis_reward_address:
+            self._update_balances(genesis_block)
 
     def _update_balances(self, block):
         """Update running balance cache for all transactions in a block."""
