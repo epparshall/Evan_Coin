@@ -16,10 +16,16 @@ class Wallet:
 
     @staticmethod
     def get_balance(blockchain, public_address):
-        # Use balance cache if available (O(1) lookup)
+        if not public_address:
+            raise ValueError("Invalid address: cannot be empty")
+        if not isinstance(public_address, str):
+            raise ValueError("Invalid address: must be a string")
+        if not hasattr(blockchain, 'chain'):
+            raise ValueError("Invalid blockchain: missing chain data")
+
         if hasattr(blockchain, 'balances') and public_address in blockchain.balances:
             return blockchain.balances[public_address]
-        # Fallback to full traversal for compatibility
+
         balance = 0
         for block in blockchain.chain:
             for tx in block.transactions:

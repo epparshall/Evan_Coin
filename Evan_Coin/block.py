@@ -28,6 +28,19 @@ class Block:
 
     @staticmethod
     def from_dict(block_dict):
-        transactions = [Transaction.from_dict(tx) for tx in block_dict['transactions']]
-        block = Block(block_dict['index'], block_dict['previous_hash'], transactions, block_dict['signatures'])
-        return block
+        required_fields = ('index', 'previous_hash', 'transactions', 'signatures')
+        missing = [field for field in required_fields if field not in block_dict]
+        if missing:
+            raise ValueError(f"Invalid block data: missing fields {missing}")
+        try:
+            transactions = [
+                Transaction.from_dict(tx) for tx in block_dict['transactions']
+            ]
+            return Block(
+                block_dict['index'],
+                block_dict['previous_hash'],
+                transactions,
+                block_dict['signatures'],
+            )
+        except (TypeError, KeyError, ValueError) as e:
+            raise ValueError(f"Invalid block data: {e}") from e
