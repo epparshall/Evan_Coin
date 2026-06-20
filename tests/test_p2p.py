@@ -283,6 +283,80 @@ class TestP2PThreadSafety:
         assert not errors
         assert node.get_chain_height() >= 2
 
+    def test_concurrent_chain_replacement_and_block_addition(
+        self, tmp_path, monkeypatch, wallet, p2p_node_factory
+    ):
+        monkeypatch.chdir(tmp_path)
+        local_bc = Blockchain(reward_amount=10, initial_difficulty=1)
+        local_bc.difficulty = 1
+        node = p2p_node_factory(blockchain=local_bc)
+
+        remote_bc = Blockchain(reward_amount=10, initial_difficulty=1)
+        remote_bc.difficulty = 1
+        remote_bc.mine_block(wallet)
+        remote_bc.mine_block(wallet)
+        long_payload = {
+            "height": remote_bc.get_chain_height(),
+            "chain": remote_bc.serialize_chain(),
+        }
+
+        extension_bc = Blockchain(reward_amount=10, initial_difficulty=1)
+        extension_bc.difficulty = 1
+        extension_block = extension_bc.mine_block(wallet)
+
+        errors = []
+        iterations = 16
+
+        def replace_chain_worker():
+            try:
+                for _ in range(iterations):
+                    node._handle_chain_response(dict(long_payload))
+            except Exception as exc:
+                errors.append(exc)
+
+        def add_block_worker():
+            try:
+                payload = {"block": extension_block.to_dict()}
+                for _ in range(iterations):
+                    node._handle_new_block(payload)
+            except Exception as exc:
+                errors.append(exc)
+
+        def read_worker():
+            try:
+                for _ in range(iterations):
+                    node.get_chain_height()
+            except Exception as exc:
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=replace_chain_worker),
+            threading.Thread(target=replace_chain_worker),
+            threading.Thread(target=add_block_worker),
+            threading.Thread(target=add_block_worker),
+            threading.Thread(target=read_worker),
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+            assert not thread.is_alive(), (
+                "concurrent chain replacement and block addition deadlocked"
+            )
+
+        assert not errors
+
+        with node._blockchain_lock:
+            chain = list(node.blockchain.chain)
+            height = node.blockchain.get_chain_height()
+
+        assert height == len(chain)
+        assert height >= 1
+        for index, block in enumerate(chain):
+            assert block.index == index
+            if index > 0:
+                assert block.previous_hash == chain[index - 1].hash
+
     def test_concurrent_height_reads_under_lock(self, p2p_node_factory):
         node = p2p_node_factory()
         heights = []

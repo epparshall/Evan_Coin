@@ -233,12 +233,11 @@ class P2PNode:
 
     def _handle_new_block(self, payload):
         """Validate and append a received block under _blockchain_lock."""
-        try:
-            block = Block.from_dict(payload["block"])
-        except (KeyError, TypeError, ValueError):
-            return False
-
         with self._blockchain_lock:
+            try:
+                block = Block.from_dict(payload["block"])
+            except (KeyError, TypeError, ValueError):
+                return False
             return self.blockchain.add_block(block)
 
     def _handle_chain_request(self, conn):
@@ -273,8 +272,7 @@ class P2PNode:
 
         # Compare height and replace atomically to avoid TOCTOU races.
         with self._blockchain_lock:
-            local_height = self.blockchain.get_chain_height()
-            if remote_height <= local_height:
+            if len(blocks) <= self.blockchain.get_chain_height():
                 return
             self.blockchain.replace_chain(blocks)
 
