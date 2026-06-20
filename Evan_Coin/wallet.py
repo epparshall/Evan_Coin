@@ -16,7 +16,10 @@ class Wallet:
 
     @staticmethod
     def get_balance(blockchain, public_address):
-        # Traverse through blockchain and update balance
+        # Use balance cache if available (O(1) lookup)
+        if hasattr(blockchain, 'balances') and public_address in blockchain.balances:
+            return blockchain.balances[public_address]
+        # Fallback to full traversal for compatibility
         balance = 0
         for block in blockchain.chain:
             for tx in block.transactions:

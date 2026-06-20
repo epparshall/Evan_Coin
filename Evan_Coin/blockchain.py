@@ -13,6 +13,7 @@ class Blockchain:
         self.chain = []
         self.pending_transactions = []
         self.signatures = []
+        self.balances = {}
         self.create_genesis_block()
         self.difficulty = 4
         self.reward_amount = reward_amount  # Configurable block reward
@@ -21,6 +22,15 @@ class Blockchain:
         genesis_block = Block(0, "0", [], [])
         self.save_to_txt(genesis_block, rwa='w')
         self.chain.append(genesis_block)
+        self.balances = {}  # reset on genesis
+
+    def _update_balances(self, block):
+        """Update running balance cache for all transactions in a block."""
+        for tx in block.transactions:
+            if tx.receiver:
+                self.balances[tx.receiver] = self.balances.get(tx.receiver, 0) + tx.amount
+            if tx.sender:
+                self.balances[tx.sender] = self.balances.get(tx.sender, 0) - tx.amount
 
     def add_transaction(self, transaction: Transaction, sender_private_key):
         if transaction.is_coinbase:
@@ -71,6 +81,7 @@ class Blockchain:
                 new_block = Block(len(self.chain), last_block.hash, all_transactions, all_signatures)
                 self.save_to_txt(new_block)
                 self.chain.append(new_block)
+                self._update_balances(new_block)
                 self.pending_transactions = []
                 self.signatures = []
                 print(f"\nMined Block {len(self.chain) - 1} with hash {hash_result}\n")
