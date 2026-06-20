@@ -24,7 +24,8 @@ def wallet_pair():
 def blockchain(tmp_path, monkeypatch):
     """Blockchain with file I/O redirected to a temp directory."""
     monkeypatch.chdir(tmp_path)
-    bc = Blockchain(reward_amount=10, initial_difficulty=1)
+    bc = Blockchain(reward_amount=10)
+    bc.difficulty = 1
     return bc
 
 

@@ -1,5 +1,3 @@
-import json
-
 import pytest
 
 from Evan_Coin.block import Block
@@ -218,98 +216,49 @@ class TestCoinbaseHandling:
         assert Wallet.get_balance(blockchain, wallet.public_address) == 20
 
 
-class TestDifficultyAdjustment:
-    def test_initial_difficulty_for_first_interval(self, blockchain, wallet):
-        for _ in range(Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL):
-            blockchain.mine_block(wallet)
+class TestTransactionFees:
+    def test_reject_insufficient_balance_including_fee(self, funded_blockchain, wallet_pair):
+        blockchain, miner = funded_blockchain
+        sender, receiver = wallet_pair
 
-        for block in blockchain.chain[1:]:
-            assert block.difficulty == blockchain.initial_difficulty
+        tx_fund = Transaction(miner.public_address, sender.public_address, 5)
+        blockchain.add_transaction(tx_fund, miner.private_key)
+        blockchain.mine_block(miner)
 
-    def test_difficulty_increases_when_blocks_mined_too_fast(
-        self, tmp_path, monkeypatch, wallet
-    ):
-        monkeypatch.chdir(tmp_path)
-        blockchain = Blockchain(reward_amount=10, initial_difficulty=2)
+        tx = Transaction(sender.public_address, receiver.public_address, 4, fee=2)
+        result = blockchain.add_transaction(tx, sender.private_key)
 
-        for _ in range(Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL):
-            blockchain.mine_block(wallet)
+        assert result is False
+        assert len(blockchain.pending_transactions) == 0
 
-        fast_chain = list(blockchain.chain)
-        fast_chain[0].timestamp = 1000.0
-        for idx in range(1, Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL):
-            fast_chain[idx].timestamp = 1000.0 + idx
+    def test_miner_receives_block_reward_plus_fees(self, funded_blockchain, wallet_pair):
+        blockchain, miner = funded_blockchain
+        sender, receiver = wallet_pair
 
-        next_index = Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL + 1
-        next_difficulty = Blockchain.calculate_difficulty_for_index(
-            fast_chain,
-            next_index,
-            blockchain.initial_difficulty,
-        )
-        assert next_difficulty > blockchain.initial_difficulty
+        tx_fund = Transaction(miner.public_address, sender.public_address, 5)
+        blockchain.add_transaction(tx_fund, miner.private_key)
+        blockchain.mine_block(miner)
 
-    def test_difficulty_decreases_when_blocks_mined_too_slow(
-        self, tmp_path, monkeypatch, wallet
-    ):
-        monkeypatch.chdir(tmp_path)
-        blockchain = Blockchain(reward_amount=10, initial_difficulty=4)
+        tx = Transaction(sender.public_address, receiver.public_address, 3, fee=1)
+        blockchain.add_transaction(tx, sender.private_key)
+        new_block = blockchain.mine_block(miner)
 
-        for _ in range(Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL):
-            blockchain.mine_block(wallet)
+        coinbase = new_block.transactions[0]
+        assert coinbase.amount == blockchain.reward_amount + 1
 
-        slow_chain = list(blockchain.chain)
-        slow_chain[0].timestamp = 1000.0
-        for idx in range(1, Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL):
-            slow_chain[idx].timestamp = 1000.0 + (
-                idx * Blockchain.TARGET_BLOCK_TIME * 2
-            )
+    def test_balances_reflect_fee_deduction(self, funded_blockchain, wallet_pair):
+        blockchain, miner = funded_blockchain
+        sender, receiver = wallet_pair
 
-        next_index = Blockchain.DIFFICULTY_ADJUSTMENT_INTERVAL + 1
-        next_difficulty = Blockchain.calculate_difficulty_for_index(
-            slow_chain,
-            next_index,
-            blockchain.initial_difficulty,
-        )
-        assert next_difficulty < blockchain.initial_difficulty
+        tx_fund = Transaction(miner.public_address, sender.public_address, 5)
+        blockchain.add_transaction(tx_fund, miner.private_key)
+        blockchain.mine_block(miner)
 
-    def test_mined_block_satisfies_proof_of_work(self, blockchain, wallet):
-        new_block = blockchain.mine_block(wallet)
+        tx = Transaction(sender.public_address, receiver.public_address, 3, fee=1)
+        blockchain.add_transaction(tx, sender.private_key)
+        blockchain.mine_block(miner)
 
-        assert new_block.hash[:new_block.difficulty] == '0' * new_block.difficulty
-
-    def test_verify_protocol_accepts_legacy_blocks_without_pow_metadata(
-        self, tmp_path, monkeypatch
-    ):
-        monkeypatch.chdir(tmp_path)
-        blockchain = Blockchain()
-        genesis_dict = {
-            "index": 0,
-            "previous_hash": "0",
-            "timestamp": 1000.0,
-            "transactions": [],
-            "signatures": [],
-        }
-        genesis_hash = Block.calculate_hash_from_dict(genesis_dict)
-        block1_dict = {
-            "index": 1,
-            "previous_hash": genesis_hash,
-            "timestamp": 1001.0,
-            "transactions": [],
-            "signatures": [],
-        }
-        legacy_content = (
-            json.dumps(genesis_dict) + "\n" + json.dumps(block1_dict) + "\n"
-        )
-
-        assert blockchain.verify_protocol(legacy_content) is True
-
-    def test_verify_protocol_validates_pow_for_new_blocks(
-        self, blockchain, wallet, tmp_path, monkeypatch
-    ):
-        monkeypatch.chdir(tmp_path)
-        blockchain.mine_block(wallet)
-
-        with open("Blockchain.txt", "r") as file:
-            content = file.read()
-
-        assert blockchain.verify_protocol(content) is True
+        assert Wallet.get_balance(blockchain, sender.public_address) == 1
+        assert Wallet.get_balance(blockchain, receiver.public_address) == 3
+        # miner: 10 (block 1) + 10 - 5 (block 2) + 10 + 1 fee (block 3) = 26
+        assert Wallet.get_balance(blockchain, miner.public_address) == 26

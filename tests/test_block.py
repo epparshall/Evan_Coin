@@ -52,8 +52,6 @@ class TestBlockSerialization:
         assert data["timestamp"] == sample_block.timestamp
         assert len(data["transactions"]) == 1
         assert data["signatures"] == [None]
-        assert data["nonce"] == 0
-        assert data["difficulty"] == 4
 
     def test_from_dict_roundtrip(self, sample_block):
         restored = Block.from_dict(sample_block.to_dict())

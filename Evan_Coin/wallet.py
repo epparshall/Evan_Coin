@@ -32,5 +32,5 @@ class Wallet:
                 if tx.receiver == public_address:
                     balance += tx.amount
                 if tx.sender == public_address:
-                    balance -= tx.amount
+                    balance -= tx.amount + getattr(tx, 'fee', 0)
         return balance

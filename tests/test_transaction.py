@@ -19,6 +19,7 @@ class TestTransactionCreation:
         assert tx.sender == sender.public_address
         assert tx.receiver == receiver.public_address
         assert tx.amount == 5.0
+        assert tx.fee == 0
         assert tx.is_coinbase is False
         assert tx.timestamp > 0
 
@@ -79,6 +80,18 @@ class TestTransactionValidation:
         with pytest.raises(ValueError, match="sender"):
             tx.validate()
 
+    def test_invalid_fee_negative(self, keys):
+        sender, receiver = keys
+        tx = Transaction(sender.public_address, receiver.public_address, 1, fee=-1)
+        with pytest.raises(ValueError, match="fee"):
+            tx.validate()
+
+    def test_valid_transaction_with_fee(self, keys):
+        sender, receiver = keys
+        tx = Transaction(sender.public_address, receiver.public_address, 1, fee=0.5)
+        tx.validate()
+        assert tx.fee == 0.5
+
 
 class TestTransactionSerialization:
     def test_to_dict_contains_expected_fields(self, keys):
@@ -89,6 +102,7 @@ class TestTransactionSerialization:
         assert data["sender"] == sender.public_address
         assert data["receiver"] == receiver.public_address
         assert data["amount"] == 3.5
+        assert data["fee"] == 0
         assert data["timestamp"] == tx.timestamp
         assert data["is_coinbase"] is False
 
@@ -100,8 +114,20 @@ class TestTransactionSerialization:
         assert restored.sender == original.sender
         assert restored.receiver == original.receiver
         assert restored.amount == original.amount
+        assert restored.fee == original.fee
         assert restored.timestamp == original.timestamp
         assert restored.is_coinbase == original.is_coinbase
+
+    def test_from_dict_defaults_fee_to_zero(self, keys):
+        _, receiver = keys
+        data = {
+            "sender": None,
+            "receiver": receiver.public_address,
+            "amount": 10,
+            "timestamp": 12345.0,
+        }
+        tx = Transaction.from_dict(data)
+        assert tx.fee == 0
 
     def test_from_dict_coinbase_defaults_is_coinbase_false(self, keys):
         _, receiver = keys
