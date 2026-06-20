@@ -1,6 +1,5 @@
 import time
 import json
-import hashlib
 import random
 
 from Evan_Coin import Block
@@ -9,15 +8,26 @@ from Evan_Coin import Wallet
 
 
 class Blockchain:
-    def __init__(self, reward_amount=10, genesis_reward_address=None):
+    DIFFICULTY_ADJUSTMENT_INTERVAL = 10
+    TARGET_BLOCK_TIME = 600  # 10 minutes per block
+    MIN_DIFFICULTY = 1
+    MAX_DIFFICULTY = 32
+
+    def __init__(
+        self,
+        reward_amount=10,
+        genesis_reward_address=None,
+        initial_difficulty=4,
+    ):
         self.chain = []
         self.pending_transactions = []
         self.signatures = []
         self.balances = {}
         self.genesis_reward_address = genesis_reward_address
-        self.create_genesis_block()
-        self.difficulty = 4
+        self.initial_difficulty = initial_difficulty
+        self.difficulty = initial_difficulty
         self.reward_amount = reward_amount  # Configurable block reward
+        self.create_genesis_block()
 
     def create_genesis_block(self):
         if self.genesis_reward_address:
@@ -28,9 +38,17 @@ class Blockchain:
                 amount=self.reward_amount,
                 is_coinbase=True
             )
-            genesis_block = Block(0, "0", [genesis_coinbase], [None])
+            genesis_block = Block(
+                0,
+                "0",
+                [genesis_coinbase],
+                [None],
+                difficulty=self.initial_difficulty,
+            )
         else:
-            genesis_block = Block(0, "0", [], [])
+            genesis_block = Block(
+                0, "0", [], [], difficulty=self.initial_difficulty
+            )
         self.save_to_txt(genesis_block, rwa='w')
         self.chain.append(genesis_block)
         self.balances = {}  # reset on genesis
@@ -44,6 +62,41 @@ class Blockchain:
                 self.balances[tx.receiver] = self.balances.get(tx.receiver, 0) + tx.amount
             if tx.sender:
                 self.balances[tx.sender] = self.balances.get(tx.sender, 0) - tx.amount
+
+    @classmethod
+    def calculate_difficulty_for_index(cls, chain, index, initial_difficulty=4):
+        """Return the proof-of-work difficulty for the block at `index`."""
+        if index == 0:
+            return initial_difficulty
+
+        period = (index - 1) // cls.DIFFICULTY_ADJUSTMENT_INTERVAL
+        if period == 0:
+            return initial_difficulty
+
+        difficulty = initial_difficulty
+        for period_number in range(1, period + 1):
+            start_idx = (period_number - 1) * cls.DIFFICULTY_ADJUSTMENT_INTERVAL
+            end_idx = period_number * cls.DIFFICULTY_ADJUSTMENT_INTERVAL
+            if end_idx > len(chain):
+                return difficulty
+
+            actual_time = chain[end_idx - 1].timestamp - chain[start_idx].timestamp
+            expected_time = cls.DIFFICULTY_ADJUSTMENT_INTERVAL * cls.TARGET_BLOCK_TIME
+            if actual_time > 0:
+                adjusted = difficulty * expected_time / actual_time
+                difficulty = max(
+                    cls.MIN_DIFFICULTY,
+                    min(cls.MAX_DIFFICULTY, round(adjusted)),
+                )
+
+        return difficulty
+
+    def get_difficulty_for_next_block(self):
+        return self.calculate_difficulty_for_index(
+            self.chain,
+            len(self.chain),
+            self.initial_difficulty,
+        )
 
     def add_transaction(self, transaction: Transaction, sender_private_key):
         if transaction.is_coinbase:
@@ -112,30 +165,45 @@ class Blockchain:
         # Add coinbase as the first transaction
         all_transactions = [coinbase_tx] + self.pending_transactions
         all_signatures = [None] + self.signatures  # Coinbase has no signature
+        block_index = len(self.chain)
+        difficulty = self.get_difficulty_for_next_block()
+        self.difficulty = difficulty
 
         while True:
             nonce = random.randint(0, 1000000000)
+            block_timestamp = time.time()
             block_data = {
-                "index": len(self.chain),
+                "index": block_index,
                 "previous_hash": last_block.hash,
                 "transactions": [tx.to_dict() for tx in all_transactions],
                 "signatures": all_signatures,
-                "timestamp": time.time(),
+                "timestamp": block_timestamp,
                 "nonce": nonce,
+                "difficulty": difficulty,
             }
 
-            block_string = json.dumps(block_data, sort_keys=True).encode('utf-8')
-            hash_result = hashlib.sha256(block_string).hexdigest()
+            hash_result = Block.calculate_hash_from_dict(block_data)
 
-            if hash_result[:self.difficulty] == '0' * self.difficulty:
-                new_block = Block(len(self.chain), last_block.hash, all_transactions, all_signatures)
+            if hash_result[:difficulty] == '0' * difficulty:
+                new_block = Block(
+                    block_index,
+                    last_block.hash,
+                    all_transactions,
+                    all_signatures,
+                    nonce=nonce,
+                    difficulty=difficulty,
+                    timestamp=block_timestamp,
+                )
                 if not self.save_to_txt(new_block):
                     return None
                 self.chain.append(new_block)
                 self._update_balances(new_block)
                 self.pending_transactions = []
                 self.signatures = []
-                print(f"\nMined Block {len(self.chain) - 1} with hash {hash_result}\n")
+                print(
+                    f"\nMined Block {block_index} with hash {hash_result} "
+                    f"(difficulty {difficulty})\n"
+                )
                 return new_block
 
     def save_to_txt(self, new_block, rwa='a'):
@@ -148,7 +216,40 @@ class Blockchain:
             print(f"Failed to save block to file: {e}")
             return False
 
-    def verify_protocol(self, content):
+    def _verify_block_proof_of_work(self, block_dict, chain, initial_difficulty):
+        block_index = block_dict['index']
+        if block_index == 0:
+            return True
+
+        if 'difficulty' not in block_dict or 'nonce' not in block_dict:
+            # Legacy blocks mined before dynamic difficulty stored PoW metadata.
+            return True
+
+        expected_difficulty = self.calculate_difficulty_for_index(
+            chain,
+            block_index,
+            initial_difficulty,
+        )
+        actual_difficulty = block_dict['difficulty']
+        if actual_difficulty != expected_difficulty:
+            print(
+                "Protocol verification failed: incorrect difficulty at "
+                f"index {block_index} (expected {expected_difficulty}, "
+                f"got {actual_difficulty})"
+            )
+            return False
+
+        block_hash = Block.calculate_hash_from_dict(block_dict)
+        if block_hash[:actual_difficulty] != '0' * actual_difficulty:
+            print(
+                "Protocol verification failed: proof-of-work not satisfied at "
+                f"index {block_index}"
+            )
+            return False
+
+        return True
+
+    def verify_protocol(self, content, initial_difficulty=None):
         if not content or not content.strip():
             print("Protocol verification failed: empty blockchain data")
             return False
@@ -158,22 +259,40 @@ class Blockchain:
             print("Protocol verification failed: no blocks found")
             return False
 
-        try:
-            for line_idx in range(len(split_content) - 1):
-                line1 = split_content[line_idx]
-                line2 = split_content[line_idx + 1]
-                block1 = Block.from_dict(json.loads(line1))
-                block2 = Block.from_dict(json.loads(line2))
+        if initial_difficulty is None:
+            initial_difficulty = self.initial_difficulty
 
-                expected_hash = hashlib.sha256(
-                    json.dumps(json.loads(line1), sort_keys=True).encode('utf-8')
-                ).hexdigest()
-                if block2.previous_hash != expected_hash:
-                    print(f"Protocol verification failed: incorrect hash at index {line_idx + 1}")
+        try:
+            chain = []
+            for line_idx, line in enumerate(split_content):
+                block_dict = json.loads(line)
+                block = Block.from_dict(block_dict)
+
+                if block.index != line_idx:
+                    print(
+                        "Protocol verification failed: block index mismatch at "
+                        f"line {line_idx}"
+                    )
                     return False
 
-                signatures = block2.signatures
-                transactions = block2.transactions
+                if line_idx > 0:
+                    expected_hash = Block.calculate_hash_from_dict(
+                        json.loads(split_content[line_idx - 1])
+                    )
+                    if block.previous_hash != expected_hash:
+                        print(
+                            "Protocol verification failed: incorrect hash at "
+                            f"index {line_idx}"
+                        )
+                        return False
+
+                if not self._verify_block_proof_of_work(
+                    block_dict, chain, initial_difficulty
+                ):
+                    return False
+
+                signatures = block.signatures
+                transactions = block.transactions
                 if len(signatures) != len(transactions):
                     print(
                         "Protocol verification failed: unequal number of "
@@ -196,12 +315,14 @@ class Blockchain:
                             if not Transaction.verify_signature(tx, sig):
                                 print(
                                     f"Protocol verification failed: invalid signature "
-                                    f"at block index {block2.index}, transaction {sig_idx}"
+                                    f"at block index {block.index}, transaction {sig_idx}"
                                 )
                                 return False
                         except ValueError as e:
                             print(f"Protocol verification failed: {e}")
                             return False
+
+                chain.append(block)
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Protocol verification failed: malformed block data ({e})")
             return False
