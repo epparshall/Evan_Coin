@@ -251,6 +251,92 @@ class Blockchain:
 
         return True
 
+    def get_chain_height(self):
+        """Return the current chain length (height)."""
+        return len(self.chain)
+
+    def serialize_chain(self):
+        """Return the full chain as a list of block dictionaries."""
+        return [block.to_dict() for block in self.chain]
+
+    def _validate_block_signatures(self, block):
+        signatures = block.signatures
+        transactions = block.transactions
+        if len(signatures) != len(transactions):
+            return False
+
+        for sig_idx, (tx, sig) in enumerate(zip(transactions, signatures)):
+            if tx.is_coinbase:
+                if sig is not None:
+                    return False
+            else:
+                try:
+                    if not Transaction.verify_signature(tx, sig):
+                        return False
+                except ValueError:
+                    return False
+        return True
+
+    def _validate_block_balances(self, block):
+        """Verify sender balances for all non-coinbase transactions in a block."""
+        balances = dict(self.balances)
+        for tx in block.transactions:
+            if not tx.is_coinbase:
+                sender_balance = balances.get(tx.sender)
+                if sender_balance is None:
+                    sender_balance = Wallet.get_balance(self, tx.sender)
+                total_cost = tx.amount + tx.fee
+                if sender_balance < total_cost:
+                    return False
+                balances[tx.sender] = sender_balance - total_cost
+            if tx.receiver:
+                balances[tx.receiver] = balances.get(tx.receiver, 0) + tx.amount
+        return True
+
+    def add_block(self, block):
+        """Append a block that extends the current chain. Returns True on success."""
+        if not self.chain:
+            return False
+        if block.index != len(self.chain):
+            return False
+        if block.previous_hash != self.chain[-1].hash:
+            return False
+
+        block_dict = block.to_dict()
+        if not self._verify_block_proof_of_work(
+            block_dict, self.chain, self.initial_difficulty
+        ):
+            return False
+        if not self._validate_block_signatures(block):
+            return False
+        if not self._validate_block_balances(block):
+            return False
+
+        if not self.save_to_txt(block):
+            return False
+
+        self.chain.append(block)
+        self._update_balances(block)
+        return True
+
+    def replace_chain(self, blocks):
+        """Replace the local chain with a longer valid chain. Returns True on success."""
+        if len(blocks) <= len(self.chain):
+            return False
+
+        chain_content = '\n'.join(json.dumps(block.to_dict()) for block in blocks)
+        if not self.verify_protocol(chain_content):
+            return False
+
+        self.chain = list(blocks)
+        self.balances = {}
+        for block in self.chain:
+            self._update_balances(block)
+        self.pending_transactions = []
+        self.signatures = []
+        self.difficulty = self.get_difficulty_for_next_block()
+        return True
+
     def verify_protocol(self, content, initial_difficulty=None):
         if not content or not content.strip():
             print("Protocol verification failed: empty blockchain data")
