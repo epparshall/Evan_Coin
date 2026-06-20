@@ -32,17 +32,26 @@ def _validate_amount(amount):
         raise ValueError("Invalid amount: must be greater than 0")
 
 
+def _validate_fee(fee):
+    if not isinstance(fee, (int, float)):
+        raise ValueError("Invalid fee: must be a number")
+    if fee < 0:
+        raise ValueError("Invalid fee: must be greater than or equal to 0")
+
+
 class Transaction:
-    def __init__(self, sender_public_address, receiver_public_address, amount, is_coinbase=False):
+    def __init__(self, sender_public_address, receiver_public_address, amount, is_coinbase=False, fee=0):
         self.sender = sender_public_address
         self.receiver = receiver_public_address
         self.amount = amount
+        self.fee = fee
         self.timestamp = time.time()
         self.is_coinbase = is_coinbase
 
     def validate(self):
         """Validate transaction fields. Raises ValueError on invalid input."""
         _validate_amount(self.amount)
+        _validate_fee(self.fee)
         if not self.receiver:
             raise ValueError("Invalid receiver address: cannot be empty")
         _validate_hex_key(
@@ -64,6 +73,7 @@ class Transaction:
             "sender": self.sender,
             "receiver": self.receiver,
             "amount": self.amount,
+            "fee": self.fee,
             "timestamp": self.timestamp,
             "is_coinbase": self.is_coinbase
         }
@@ -79,7 +89,8 @@ class Transaction:
                 sender_public_address=transaction_dict['sender'],
                 receiver_public_address=transaction_dict['receiver'],
                 amount=transaction_dict['amount'],
-                is_coinbase=transaction_dict.get('is_coinbase', False)
+                is_coinbase=transaction_dict.get('is_coinbase', False),
+                fee=transaction_dict.get('fee', 0),
             )
             tx.timestamp = transaction_dict['timestamp']
             return tx
