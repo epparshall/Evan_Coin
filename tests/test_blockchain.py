@@ -214,3 +214,51 @@ class TestCoinbaseHandling:
         blockchain.mine_block(wallet)
 
         assert Wallet.get_balance(blockchain, wallet.public_address) == 20
+
+
+class TestTransactionFees:
+    def test_reject_insufficient_balance_including_fee(self, funded_blockchain, wallet_pair):
+        blockchain, miner = funded_blockchain
+        sender, receiver = wallet_pair
+
+        tx_fund = Transaction(miner.public_address, sender.public_address, 5)
+        blockchain.add_transaction(tx_fund, miner.private_key)
+        blockchain.mine_block(miner)
+
+        tx = Transaction(sender.public_address, receiver.public_address, 4, fee=2)
+        result = blockchain.add_transaction(tx, sender.private_key)
+
+        assert result is False
+        assert len(blockchain.pending_transactions) == 0
+
+    def test_miner_receives_block_reward_plus_fees(self, funded_blockchain, wallet_pair):
+        blockchain, miner = funded_blockchain
+        sender, receiver = wallet_pair
+
+        tx_fund = Transaction(miner.public_address, sender.public_address, 5)
+        blockchain.add_transaction(tx_fund, miner.private_key)
+        blockchain.mine_block(miner)
+
+        tx = Transaction(sender.public_address, receiver.public_address, 3, fee=1)
+        blockchain.add_transaction(tx, sender.private_key)
+        new_block = blockchain.mine_block(miner)
+
+        coinbase = new_block.transactions[0]
+        assert coinbase.amount == blockchain.reward_amount + 1
+
+    def test_balances_reflect_fee_deduction(self, funded_blockchain, wallet_pair):
+        blockchain, miner = funded_blockchain
+        sender, receiver = wallet_pair
+
+        tx_fund = Transaction(miner.public_address, sender.public_address, 5)
+        blockchain.add_transaction(tx_fund, miner.private_key)
+        blockchain.mine_block(miner)
+
+        tx = Transaction(sender.public_address, receiver.public_address, 3, fee=1)
+        blockchain.add_transaction(tx, sender.private_key)
+        blockchain.mine_block(miner)
+
+        assert Wallet.get_balance(blockchain, sender.public_address) == 1
+        assert Wallet.get_balance(blockchain, receiver.public_address) == 3
+        # miner: 10 (block 1) + 10 - 5 (block 2) + 10 + 1 fee (block 3) = 26
+        assert Wallet.get_balance(blockchain, miner.public_address) == 26

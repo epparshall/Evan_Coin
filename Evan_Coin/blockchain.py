@@ -61,7 +61,7 @@ class Blockchain:
             if tx.receiver:
                 self.balances[tx.receiver] = self.balances.get(tx.receiver, 0) + tx.amount
             if tx.sender:
-                self.balances[tx.sender] = self.balances.get(tx.sender, 0) - tx.amount
+                self.balances[tx.sender] = self.balances.get(tx.sender, 0) - tx.amount - tx.fee
 
     @classmethod
     def calculate_difficulty_for_index(cls, chain, index, initial_difficulty=4):
@@ -131,10 +131,11 @@ class Blockchain:
             print(f"Failed to check sender balance: {e}")
             return False
 
-        if sender_balance < transaction.amount:
+        total_cost = transaction.amount + transaction.fee
+        if sender_balance < total_cost:
             print(
                 f"Insufficient balance: sender has {sender_balance}, "
-                f"tried to send {transaction.amount}"
+                f"tried to send {transaction.amount} with fee {transaction.fee}"
             )
             return False
 
@@ -154,11 +155,12 @@ class Blockchain:
 
         last_block = self.chain[-1]
 
-        # Create coinbase transaction (block reward)
+        # Create coinbase transaction (block reward + transaction fees)
+        total_fees = sum(tx.fee for tx in self.pending_transactions)
         coinbase_tx = Transaction(
             sender_public_address=None,
             receiver_public_address=miner.public_address,
-            amount=self.reward_amount,
+            amount=self.reward_amount + total_fees,
             is_coinbase=True
         )
 
